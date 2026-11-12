@@ -55,39 +55,52 @@ def smartctl_json(args):
 
 
 def scan_devices():
+    """Trả về danh sách tên thiết bị (ví dụ /dev/sda). Loại thiết bị từ --scan
+    không được dùng vì có thể sai (ví dụ ổ SATA báo là 'scsi')."""
     data, err = smartctl_json(["--scan"])
     if data is None:
         return [], err
-    seen, devices = set(), []
+    names = []
     for d in data.get("devices", []):
         name = d.get("name")
-        if name and name not in seen:
-            seen.add(name)
-            devices.append({"name": name, "type": d.get("type")})
-    return devices, None
+        if name and name not in names:
+            names.append(name)
+    return names, None
 
 
-def check_device(dev):
-    args = ["-a"]
-    if dev.get("type"):
-        args += ["-d", dev["type"]]
-    args.append(dev["name"])
+# Thử lần lượt: tự nhận dạng, rồi ép kiểu SAT (ổ SATA qua USB/bộ chuyển đổi).
+SMART_ATTEMPTS = [[], ["-d", "sat"]]
 
-    data, err = smartctl_json(args)
+
+def has_smart_data(data):
+    return any(k in data for k in
+               ("model_name", "ata_smart_attributes", "nvme_smart_health_information_log"))
+
+
+def read_smart(name):
+    """Trả về (data, None) nếu đọc được SMART, hoặc (None, [thông điệp lỗi])."""
+    messages = []
+    for extra in SMART_ATTEMPTS:
+        data, err = smartctl_json(["-a", *extra, name])
+        if data is None:
+            messages.append(err)
+            continue
+        if has_smart_data(data):
+            return data, None
+        messages.extend(m.get("string", "")
+                        for m in data.get("smartctl", {}).get("messages", [])
+                        if m.get("string"))
+    return None, messages
+
+
+def check_device(name):
+    data, messages = read_smart(name)
     if data is None:
-        return {"device": dev["name"], "level": ERR, "error": err}
-
-    has_data = any(k in data for k in
-                   ("model_name", "ata_smart_attributes",
-                    "nvme_smart_health_information_log"))
-    if not has_data:
-        msgs = [m.get("string", "") for m in data.get("smartctl", {}).get("messages", [])
-                if m.get("severity") == "error"]
-        return {"device": dev["name"], "level": ERR,
-                "error": "; ".join(msgs) or "không có dữ liệu SMART"}
+        return {"device": name, "level": ERR,
+                "error": "; ".join(dict.fromkeys(messages)) or "không có dữ liệu SMART"}
 
     info = {
-        "device": dev["name"],
+        "device": name,
         "model": data.get("model_name", "không rõ"),
         "serial": data.get("serial_number", "không rõ"),
         "firmware": data.get("firmware_version", "không rõ"),
@@ -224,7 +237,7 @@ def main():
         print("Gợi ý: hãy chạy bằng sudo để đọc được thông tin SMART.", file=sys.stderr)
 
     if args.device:
-        devices = [{"name": d, "type": None} for d in args.device]
+        devices = args.device
     else:
         devices, err = scan_devices()
         if err:
@@ -235,13 +248,19 @@ def main():
         return ERR
 
     results = [check_device(d) for d in devices]
+    # Mã thoát: 3 nếu có ổ không đọc được, ngược lại là mức nghiêm trọng cao nhất.
     code = max(r["level"] for r in results)
 
     if args.json:
         print(json.dumps(results, ensure_ascii=False, indent=2))
     else:
         print_report(results)
-        print(f"Tổng kết: {LEVEL_TEXT[code]}")
+        readable = [r["level"] for r in results if r["level"] != ERR]
+        summary = LEVEL_TEXT[max(readable)] if readable else LEVEL_TEXT[ERR]
+        failed = len(results) - len(readable)
+        if failed:
+            summary += f" ({failed} ổ không đọc được)"
+        print(f"Tổng kết: {summary}")
     return code
 
 

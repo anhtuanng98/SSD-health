@@ -86,7 +86,7 @@ Tổng kết: CẢNH BÁO
 - Kết quả "TỐT" không có nghĩa ổ chắc chắn không hỏng. S.M.A.R.T. chỉ là dấu hiệu sớm. Hãy luôn sao lưu dữ liệu quan trọng.
 - Tên thuộc tính S.M.A.R.T. và cách tính tuổi thọ khác nhau giữa các hãng. Công cụ dùng các ID phổ biến nên có thể chưa bao phủ hết mọi dòng ổ.
 - "Đã ghi (ước)" lấy từ thuộc tính tổng số sector đã ghi (ATA 241) hoặc `data_units_written` (NVMe), chỉ mang tính tham khảo.
-- Ổ gắn qua hộp USB có thể cần thêm tham số `-d sat` của smartctl. Nếu công cụ không đọc được, hãy thử chạy `sudo smartctl -a -d sat /dev/sdX` để kiểm tra.
+- Công cụ tự nhận dạng ổ trước, sau đó thử lại với `-d sat` nếu chưa đọc được (thường gặp với ổ SATA qua hộp USB hoặc bộ chuyển đổi). Nếu vẫn lỗi, công cụ sẽ hiển thị thông điệp của smartctl. Bạn cũng có thể tự kiểm tra bằng `sudo smartctl -a -d sat /dev/sdX`.
 - Một số ổ phải bật S.M.A.R.T. trong BIOS/UEFI hoặc dùng `sudo smartctl -s on /dev/sdX`.
 
 ## Giấy phép
